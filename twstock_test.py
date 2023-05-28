@@ -5,9 +5,15 @@ import logging
 import twstock
 import numpy as np
 import matplotlib.pyplot as plt
+import mplfinance as mpf
 import json
-# from twstock import Stock
-# import pandas as pd
+import pandas as pd
+import pickle
+import os
+
+# time
+import datetime as datetime
+
 
 args = None
 logger = None
@@ -67,6 +73,36 @@ def get_logger():
 # End of log_setting
 
 
+def get_top():
+
+    pass
+
+# End of get_top
+
+
+def get_sma(df):
+    """
+    用來算SMA
+
+    """
+    # 計算二十日均線
+    df['MA20'] = df['close'].rolling(window=20).mean()
+
+    # 計算六十日均線
+    df['MA60'] = df['close'].rolling(window=60).mean()
+
+    # 計算一百二十日均線
+    df['MA120'] = df['close'].rolling(window=120).mean()
+# End of get_slope
+
+
+def get_ema():
+
+    df['EMA5'] = df['close'].ewm(span=5, adjust=False).mean()
+
+# End of get_slope
+
+
 if __name__ == '__main__':
     args = arg_parse()  # 命令參數解析
     logger = get_logger()  # 取得logger
@@ -76,6 +112,7 @@ if __name__ == '__main__':
         logger.info("更新股票代號...")
         twstock.__update_codes()
         logger.info("完成")
+        exit()
 
     # 取得上市櫃代號的相關資訊
     # stock_dict = twstock.codes
@@ -88,9 +125,60 @@ if __name__ == '__main__':
     # logger.info("所有台股資訊")
     # logger.info(json.dumps(stock_dict, indent=4, ensure_ascii=False))
 
-    # key = '3260'
-    # stock = twstock.Stock(key)
-    # logger.info(stock.fetch_31()[0].open)
+    # 設定股票代碼
+    stock_code = '2330'
+
+    # 設定本地暫存檔名稱
+    cache_file = f'stock_cache/{stock_code}_cache.pkl'
+
+    if (os.path.exists(cache_file)):
+        logger.info('讀取本地暫存檔資料')
+        # 嘗試從本地讀取暫存資料
+        with open(cache_file, 'rb') as f:
+            df = pickle.load(f)
+        logger.info('從本地暫存檔讀取資料成功')
+    else:
+        logger.info('讀取TWSE資料')
+        # 如果本地暫存檔不存在，則從 TWSE 獲取資料
+        stock = twstock.Stock(stock_code)
+        data = stock.fetch_from(2022, 1)
+
+        # 將資料轉換成 DataFrame
+        df = pd.DataFrame(data)
+
+        # 將資料存儲到本地暫存檔
+        with open(cache_file, 'wb') as f:
+            pickle.dump(df, f)
+        logger.info('從 TWSE 獲取資料並存儲到本地暫存檔')
+
+    # 設定日期為索引欄位
+    df.set_index('date', inplace=True)
+
+    #
+    get_sma(df)
+
+    #
+    addplot_list = []
+    addplot_list.append(mpf.make_addplot(df['MA20']))
+    addplot_list.append(mpf.make_addplot(df['MA60']))
+    addplot_list.append(mpf.make_addplot(df['MA120']))
+
+    # 將 DataFrame 轉換為 mplfinance 需要的格式
+    quotes = df[['open', 'high', 'low', 'close', 'capacity']]
+    quotes.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+
+    # 繪製蠟燭圖
+    mpf.plot(quotes, type='candle', style='yahoo',
+             title=('Stock Chart ' + stock_code), ylabel='Price', volume=True,
+             addplot=addplot_list, warn_too_much_data=1000)
+
+# fig = plt.figure(figsize=(24, 8))
+
+# ax = fig.add_subplot(1, 1, 1)
+# ax.set_xticks(range(0, len(stock.index), 10))
+# ax.set_xticklabels(df_2330.index[::10])
+# mpf.plot(ax, stock.open, stock.close, stock.high,
+#   stock.low, width=0.6, colorup='r', colordown='g', alpha=0.75)
 
 
 # 获取台股所有股票资讯
