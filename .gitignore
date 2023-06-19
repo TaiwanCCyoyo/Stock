@@ -162,12 +162,12 @@ cython_debug/
 
 # VSCode
 .vscode
-cache_file/*
-*.pkl
 
 
 # 暫存檔
 cmd.tmp
+stock_cache/*
+*.pkl
 
 # API
 *.key
