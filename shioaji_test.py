@@ -1,13 +1,13 @@
 #!/usr/bin/python3
 
-# 匯入 Shioaji 套件
 import shioaji as sj
 import pandas as pd
 import argparse
-import logging
 import os
 import pickle
 import mplfinance as mpf
+import datetime
+import user_logger.user_logger
 
 
 args = None
@@ -22,50 +22,23 @@ def arg_parse():
         argparse.Namespace: 解析後的參數設定。
     """
 
-    parser = argparse.ArgumentParser(description='twstock test script')
+    parser = argparse.ArgumentParser(description='shioaji test script')
     # 設定參數選項
     parser.add_argument('--version', action='version', version='%(prog)s 0.1')
     parser.add_argument('-v', '--verbose', action='count', default=0)
     parser.add_argument('-k', '--key', dest='key', type=str,
-                        metavar='KEY_FILE', default="api.key", help='key file name')
+                        metavar='*.key', default="api.key", help='key file name')
+    parser.add_argument('-u', '--update', dest='update', action="store_true",
+                        default=False, help='Update from Shioaji even if there is *.pkl')
+    parser.add_argument('--stock', dest='stock', type=str,
+                        metavar='CODE', default="2330", help='The stock code to test')
     parser.add_argument('-l', '--log', dest='log', type=str,
-                        metavar='LOG_FILE', default="shioaji_test.log", help='log file name')
+                        metavar='*.log', default="shioaji_test.log", help='log file name')
 
     # 解析參數
     return parser.parse_args()
 # End of arg_parse
 
-
-def get_logger():
-    """
-    用來設定 logging。
-
-    這個程式會修改全域變數logger，使他成為logging的logger，
-    並會使log輸出到終端機並導到twstock_test.log
-
-    Returns:
-        logging.Logger
-    """
-
-    # 設定日誌格式
-    formatter = logging.Formatter('[%(levelname)s] %(message)s')
-
-    # 設定輸出到 console 的 handler
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-
-    # 設定輸出到檔案的 handler
-    file_handler = logging.FileHandler(args.log, 'w', 'utf-8')
-    file_handler.setFormatter(formatter)
-
-    # 設定 logger，並加入 handlers
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    logger.addHandler(stream_handler)
-    logger.addHandler(file_handler)
-
-    return logger
-# End of log_setting
 
 def get_sma(df):
     """
@@ -85,16 +58,16 @@ def get_sma(df):
 
 if __name__ == '__main__':
     args = arg_parse()  # 命令參數解析
-    logger = get_logger()  # 取得logger
+    logger = user_logger.user_logger.get_logger(args.log)  # 取得logger
 
     # 設定股票代碼
-    stock_code = '6217'
+    stock_code = args.stock
 
     # 設定本地暫存檔名稱
     cache_dir = 'stock_cache'
     cache_file = f'{cache_dir}/{stock_code}_cache.pkl'
 
-    if (os.path.isfile(cache_file)):
+    if (os.path.isfile(cache_file) and not args.update):
         logger.info('讀取本地暫存檔資料')
         # 嘗試從本地讀取暫存資料
         with open(cache_file, 'rb') as f:
@@ -139,10 +112,11 @@ if __name__ == '__main__':
         logger.info('登入成功')
 
         # 取得 K 棒資料
-        kbars = api.kbars(api.Contracts.Stocks[stock_code], start="2020-06-01", end="2020-07-01")
+        kbars = api.kbars(api.Contracts.Stocks[stock_code], start="1962-02-09", end=datetime.date.today().strftime("%Y-%m-%d"))
 
         # 將資料轉換成 DataFrame
         df = pd.DataFrame({**kbars})
+        logger.info(df)
 
         # 將資料存儲到本地暫存檔
         logger.info('將 Shioaji 獲取的資料存儲到本地暫存檔')
@@ -180,4 +154,4 @@ if __name__ == '__main__':
     # 繪製蠟燭圖
     mpf.plot(quotes, type='candle', style='yahoo',
              title=('Stock Chart ' + stock_code), ylabel='Price', volume=True,
-             addplot=addplot_list, warn_too_much_data=1000)
+             addplot=addplot_list, warn_too_much_data=200000)
