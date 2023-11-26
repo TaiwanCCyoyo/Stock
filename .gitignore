@@ -167,7 +167,7 @@ cython_debug/
 # 暫存檔
 cmd.tmp
 stock_cache/*
-*.pkl
+*.csv
 
 # API
 *.key
