@@ -12,10 +12,8 @@ import pandas as pd
 import argparse
 import os
 import datetime
-import datetime
 import user_logger.user_logger
-import lib.stock_category as stock_category
-import time
+import stock_function.stock_category as stock_category
 import re
 
 args = None
@@ -36,9 +34,9 @@ def arg_parse():
     parser.add_argument('-v', '--verbose', action='count', default=0)
     parser.add_argument('-k', '--key', dest='key', type=str,
                         metavar='*.key', default="api.key", help='key file name')
-    parser.add_argument('-l', '--log', dest='log', type=str,
-                        metavar='*.log', default="download_all_data.log", help='log file name')
-    parser.add_argument('-l', '--cache_dir', dest='cache_dir', type=str,
+    parser.add_argument('-l', '--log', dest='log', type=str, metavar='*.log',
+                        default="download_all_data.log", help='log file name')
+    parser.add_argument('--cache_dir', dest='cache_dir', type=str,
                         metavar='*', default="stock_cache", help='local data cache directory')
 
     # 解析參數
@@ -66,7 +64,7 @@ if __name__ == '__main__':
             with open(args.key, 'r') as f:
                 api_key = f.readline().strip()
                 secret_key = f.readline().strip()
-        except:
+        except Exception:
             logger.critical("Key 取得失敗")
             exit
 
@@ -89,11 +87,13 @@ if __name__ == '__main__':
     OTC_contract_list = api.Contracts.Stocks.OTC
     stock_contract_list = []
     for contract in TSE_contract_list:
-        if contract.category != stock_category.tse_stock_category_reverse_dict["期權"] and re.match('^[0-9]+$', contract.code) and contract.update_date != today_str:
+        if contract.category != stock_category.tse_stock_category_reverse_dict["期權"] \
+                and re.match('^[0-9]+$', contract.code) and contract.update_date != today_str:
             stock_contract_list.append(contract)
 
     for contract in OTC_contract_list:
-        if contract.category != stock_category.tse_stock_category_reverse_dict["期權"] and re.match('^[0-9]+$', contract.code) and contract.update_date != today_str:
+        if contract.category != stock_category.tse_stock_category_reverse_dict["期權"] \
+                and re.match('^[0-9]+$', contract.code) and contract.update_date != today_str:
             stock_contract_list.append(contract)
 
     stock_contract_list.sort(key=lambda x: x.code)
@@ -115,7 +115,7 @@ if __name__ == '__main__':
                     start_date = df.iloc[-1]['ts'] + \
                         datetime.timedelta(days=1)
                     start_date_str = start_date.strftime("%Y-%m-%d")
-            except:
+            except Exception:
                 logger.critical(f"{cache_file}讀取失敗")
 
         if start_date >= today_date:
@@ -163,17 +163,17 @@ if __name__ == '__main__':
                 f"再次讀取{stock_contract.name} ({stock_contract.code}) 的資料")
             try:
                 df_old = pd.read_csv(cache_file)
-                logger.info(f"合併資料")
+                logger.info("合併資料")
                 merged_df = pd.concat([df_old, df], axis=0)
                 df = merged_df
-            except:
+            except Exception:
                 logger.critical(f"{cache_file}讀取失敗")
 
         # 將資料存儲到本地暫存檔
         try:
             logger.info('將資料存儲到本地暫存檔')
             df.to_csv(cache_file, index=False)
-        except:
+        except Exception:
             logger.warning(f"{cache_file} 儲存失敗")
             try:
                 os.remove(cache_file)
