@@ -32,7 +32,6 @@ Shioaji 台灣股市資料下載與 K 線分析專案
 """
 
 import re
-import shioaji as sj
 import pandas as pd
 import argparse
 import os
@@ -75,6 +74,48 @@ def arg_parse():
     return parser.parse_args()
 
 
+def generate_day_data(cache_dir):
+    """
+    根據分K資料生成日K資料。
+
+    Args:
+        cache_dir (str): 包含分K資料檔案的資料夾。
+
+    Returns:
+        None
+    """
+    # 檢查資料夾是否存在
+    if not os.path.exists(cache_dir):
+        print(f"找不到資料夾: {cache_dir}")
+        return
+
+    # 取得資料夾中的所有 _min.csv 檔案
+    min_files = [f for f in os.listdir(cache_dir) if f.endswith("_min.csv")]
+
+    for min_file in min_files:
+        # 生成對應的 _day.csv 檔案名稱
+        day_file = re.sub(r'_min\.csv$', r'_day.csv', min_file)
+
+        # 讀取分K資料
+        min_data = pd.read_csv(os.path.join(cache_dir, min_file))
+        min_data.ts = pd.to_datetime(min_data.ts)
+        min_data.set_index('ts', inplace=True)
+
+        # 生成日K資料
+        day_data = min_data.resample('1D').agg({
+            'Open': 'first',
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last',
+            'Volume': 'sum'
+        })
+
+        day_data = day_data.dropna(subset=['Open'])
+
+        # 將生成的日K資料存儲到 _day.csv 檔案
+        day_data.to_csv(os.path.join(cache_dir, day_file), index=True)
+
+
 if __name__ == '__main__':
     args = arg_parse()  # 命令參數解析
     logger = user_logger.get_logger(args.log)  # 取得logger
@@ -84,87 +125,17 @@ if __name__ == '__main__':
         logger.critical(f"找不到資料夾: {cache_dir}")
         exit
 
-    find_all_error_stock_data(args.cache_dir)
-
-    # 建立 Shioaji api 物件
-    api = sj.Shioaji()
-    accounts = shioaji_utils.login_to_api(api, logger, args.key)
-
-    # 開始
+    # 開始執行時間
     start_time = datetime.datetime.now()
     logger.info(f"開始: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    # 取得今日 %Y-%m-%d 的時間格式
-    today_date = start_time
-    today_str = today_date.strftime("%Y-%m-%d")
+    # 生成日K資料
+    generate_day_data(args.cache_dir)
 
-    # 從 TSE 和 OTC 列表找到是否有此股票編號，並取得相關物件
-    TSE_contract_list = api.Contracts.Stocks.TSE
-    OTC_contract_list = api.Contracts.Stocks.OTC
-    stock_contract = None
-    for contract in TSE_contract_list:
-        if contract.category != stock_category.tse_stock_category_reverse_dict["期權"] \
-                and re.match(args.code, contract.code):
-            stock_contract = contract
-
-    if (stock_contract is None):
-        for contract in OTC_contract_list:
-            if contract.category != stock_category.tse_stock_category_reverse_dict["期權"]:
-                if re.match(args.code, contract.code) and contract.update_date != today_str:
-                    stock_contract = contract
-
-    # 暫存檔名稱
-    cache_file = f'{cache_dir}/{stock_contract.code}_cache_min.csv'
-
-    # 嘗試取得資料
-    success = False
-    while not success:
-        logger.info(
-            f"取得{stock_contract.name} ({stock_contract.code}) 從 {shioaji_utils.sj_earliest_date_str} 到 {today_str} 的資料")
-
-        # 取得 K 棒資料
-        kbars = api.kbars(
-            contract=stock_contract,
-            start=shioaji_utils.sj_earliest_date_str,
-            end=today_str
-        )
-
-        # 將資料轉換成 DataFrame
-        df = pd.DataFrame({**kbars})
-        if df.empty:
-            usage_bytes = api.usage().bytes
-            if usage_bytes < 524288000:
-                logger.info(f"今日已使用 {usage_bytes} B")
-                break
-            else:
-                logger.critical(f"今日已使用 {usage_bytes} B")
-                api.logout()
-                exit()
-        else:
-            success = True
-
-    # 儲存結果
-    if not success:
-        logger.info(
-            f"跳過{stock_contract.name} ({stock_contract.code}) "
-            f"因為從 {shioaji_utils.sj_earliest_date_str} 到 {today_str} 的資料取得失敗"
-        )
-    else:
-        # 將資料存儲到本地暫存檔
-        try:
-            logger.info('將資料存儲到本地暫存檔')
-            df.to_csv(cache_file, index=False)
-        except Exception:
-            logger.warning(f"{cache_file} 儲存失敗")
-            try:
-                os.remove(cache_file)
-            except OSError:
-                pass
-
-    # 登出並顯示結果
-    api.logout()
+    # 結束執行時間
     end_time = datetime.datetime.now()
     logger.info(f"結束: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
+    # 計算執行時間
     total_time = (end_time - start_time).total_seconds()
     logger.info(f"程式共花費: {total_time} 秒")
