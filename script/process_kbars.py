@@ -39,8 +39,8 @@ import datetime
 import sys
 from concurrent.futures import ProcessPoolExecutor
 sys.path.append(os.path.dirname(os.path.abspath(__file__+"/..")))  # noqa
-from unils import shioaji_utils  # noqa
-from unils import stock_category  # noqa
+from utils import shioaji_utils  # noqa
+from utils import stock_category  # noqa
 from user_logger import user_logger  # noqa
 import config  # noqa
 
