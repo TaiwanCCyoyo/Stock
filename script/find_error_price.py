@@ -36,6 +36,7 @@ import pandas as pd
 from concurrent.futures import ProcessPoolExecutor
 
 DEFAULT_CACHE_DIR = "stock_cache"
+args = None
 
 
 def parse_arguments():
@@ -49,6 +50,8 @@ def parse_arguments():
         description='找尋錯誤股價的腳本')
     parser.add_argument('--cache_dir', dest='cache_dir', type=str,
                         metavar='*', default=DEFAULT_CACHE_DIR, help='本地資料緩存目錄')
+    parser.add_argument('--suffix', dest='suffix', type=str,
+                        metavar='*', default="", help='<>.csv <>這段後贅字')
     return parser.parse_args()
 
 
@@ -86,7 +89,7 @@ def find_all_error_stock_data(cache_dir):
 
     # 列出資料夾中的所有 CSV 檔案
     file_paths = [os.path.join(cache_dir, filename) for filename in os.listdir(
-        cache_dir) if filename.endswith(".csv")]
+        cache_dir) if filename.endswith(f"{args.suffix}.csv")]
 
     with ProcessPoolExecutor() as executor:
         # 將任務提交到進程池中執行
