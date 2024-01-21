@@ -37,6 +37,7 @@ import argparse
 import os
 import datetime
 import sys
+from concurrent.futures import ProcessPoolExecutor
 sys.path.append(os.path.dirname(os.path.abspath(__file__+"/..")))  # noqa
 from unils import shioaji_utils  # noqa
 from unils import stock_category  # noqa
@@ -60,10 +61,6 @@ def arg_parse():
     # 設定參數選項
     parser.add_argument('--version', action='version', version='%(prog)s 0.1')
     parser.add_argument('-v', '--verbose', action='count', default=0)
-    parser.add_argument('-k', '--key', dest='key', type=str,
-                        metavar='*.key', default="api.key", help='key file name')
-    parser.add_argument('--code', dest='code', type=str,
-                        metavar='CODE', default="6291", help='The stock code to test')
     parser.add_argument('-l', '--log', dest='log', type=str,
                         metavar='*.log', default=f"{config.DEFAULT_LOG_DIR}/refresh_stock_data.log",
                         help='log file name')
@@ -72,6 +69,40 @@ def arg_parse():
 
     # 解析參數
     return parser.parse_args()
+
+
+def process_min_file(min_file, cache_dir):
+    """
+    生成單一 _min.csv 檔案對應的日K資料。
+
+    Args:
+        min_file (str): 輸入的 _min.csv 檔案名稱。
+        cache_dir (str): 包含分K資料檔案的資料夾。
+
+    Returns:
+        None
+    """
+    day_file = re.sub(r'_min\.csv$', r'_day.csv', min_file)
+    print(f"將{min_file}轉成{day_file}")
+
+    # 讀取分K資料
+    min_data = pd.read_csv(os.path.join(cache_dir, min_file))
+    min_data.ts = pd.to_datetime(min_data.ts)
+    min_data.set_index('ts', inplace=True)
+
+    # 生成日K資料
+    day_data = min_data.resample('1D').agg({
+        'Open': 'first',
+        'High': 'max',
+        'Low': 'min',
+        'Close': 'last',
+        'Volume': 'sum'
+    })
+
+    day_data = day_data.dropna(subset=['Open', 'High', 'Low', 'Close', 'Volume'])
+
+    # 將生成的日K資料存儲到 _day.csv 檔案
+    day_data.to_csv(os.path.join(cache_dir, day_file), index=True)
 
 
 def generate_day_data(cache_dir):
@@ -92,28 +123,10 @@ def generate_day_data(cache_dir):
     # 取得資料夾中的所有 _min.csv 檔案
     min_files = [f for f in os.listdir(cache_dir) if f.endswith("_min.csv")]
 
-    for min_file in min_files:
-        # 生成對應的 _day.csv 檔案名稱
-        day_file = re.sub(r'_min\.csv$', r'_day.csv', min_file)
-
-        # 讀取分K資料
-        min_data = pd.read_csv(os.path.join(cache_dir, min_file))
-        min_data.ts = pd.to_datetime(min_data.ts)
-        min_data.set_index('ts', inplace=True)
-
-        # 生成日K資料
-        day_data = min_data.resample('1D').agg({
-            'Open': 'first',
-            'High': 'max',
-            'Low': 'min',
-            'Close': 'last',
-            'Volume': 'sum'
-        })
-
-        day_data = day_data.dropna(subset=['Open'])
-
-        # 將生成的日K資料存儲到 _day.csv 檔案
-        day_data.to_csv(os.path.join(cache_dir, day_file), index=True)
+    # 使用 ProcessPoolExecutor 建立進程池
+    with ProcessPoolExecutor() as executor:
+        # 將任務提交到進程池中執行
+        executor.map(process_min_file, min_files, [cache_dir]*len(min_files))
 
 
 if __name__ == '__main__':
