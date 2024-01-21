@@ -90,6 +90,9 @@ def process_min_file(min_file, cache_dir):
     min_data.ts = pd.to_datetime(min_data.ts)
     min_data.set_index('ts', inplace=True)
 
+    # 捨棄不合理資料
+    min_data = min_data[(min_data != 0).all(axis=1)]
+
     # 生成日K資料
     day_data = min_data.resample('1D').agg({
         'Open': 'first',
