@@ -13,10 +13,12 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__ + "/..")))  # noqa
 from user_logger import user_logger  # noqa
 import config  # noqa
 from utils.backtest_struct import StockPosition, TradeHistory  # noqa
+from utils.stock_category import tse_stock_category_dict  # noqa
 
 
 args = None
 logger = None
+stock_groups = set()
 
 
 def arg_parse():
@@ -43,9 +45,32 @@ def arg_parse():
                         metavar='<UNSIGNED INT>', default="2000000", help='initial amount')
     parser.add_argument('--investment_per_trade', dest='investment_per_trade', type=int,
                         metavar='<UNSIGNED INT>', default="500000", help='investment per trade')
+    parser.add_argument('--group', dest='group', type=str,
+                        metavar='<UNSIGNED INT>|ALL', default="ALL", help='investment per trade')
 
     # 解析參數
     return parser.parse_args()
+
+
+def decode_group():
+    """
+    將 group 的數字轉成 list
+    """
+    global stock_groups
+
+    group_str = args.group
+    groups = group_str.split("|")
+    stock_groups = set()
+    if "ALL" in groups:
+        for g in tse_stock_category_dict:
+            stock_groups.add(tse_stock_category_dict[g])
+    else:
+        for g in groups:
+            if g in tse_stock_category_dict.keys():
+                stock_groups.add(tse_stock_category_dict[g])
+
+    if '-' in stock_groups:
+        stock_groups.remove('-')
 
 
 def read_stock_data(cache_dir, df_dict):
@@ -59,8 +84,7 @@ def read_stock_data(cache_dir, df_dict):
         if match:
             code = match.group(1)
             if ((code in twstock.codes.keys()) and twstock.codes[code].type == "股票" and
-                    (twstock.codes[code].group == "半導體業" or twstock.codes[code].group == "電腦及週邊設備業"
-                     or twstock.codes[code].group == "電子零組件業")):
+                    (twstock.codes[code].group in stock_groups)):
                 # and (code == "3231")):
                 logger.info(f'Reading {cache_dir}/{f}')
                 df = pd.read_csv(f'{cache_dir}/{f}')
@@ -278,6 +302,7 @@ if __name__ == '__main__':
     args = arg_parse()  # 命令參數解析
     start_time = datetime.now()
     logger = user_logger.get_logger(args.log)  # 取得logger
+    decode_group()
 
     # 設定本地暫存檔名稱
     cache_dir = args.cache_dir
