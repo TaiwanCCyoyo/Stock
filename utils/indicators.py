@@ -16,7 +16,7 @@ def set_sma(df, n):
     用來算SMA
 
     """
-    df[f'SMA{n}'] = df['Close'].rolling(window=n).mean()
+    df[f'SMA{n}'] = df['Close'].rolling(window=n).mean().round(2)
 # End of set_sma
 
 
@@ -31,7 +31,7 @@ def set_ema(df, n):
     回傳：
     None( 會在原始 DataFrame 中添加一個名為 'EMA{n}' 的新欄位 )
     """
-    df[f'EMA{n}'] = df['Close'].ewm(span=n).mean()
+    df[f'EMA{n}'] = df['Close'].ewm(span=n).mean().round(2)
 
 # End of set_ema
 
@@ -160,6 +160,8 @@ def set_high_and_high(df):
                 high_and_high = False
             pre_high = df.loc[i, 'High']
             pre_high_idx = i
+        else:
+            high_and_high = False
 
         df.loc[i, 'High and High'] = high_and_high
 # End of set_high_and_high
@@ -188,6 +190,8 @@ def set_low_and_low(df):
                 low_and_low = False
             pre_low = df.loc[i, 'Low']
             pre_low_idx = i
+        else:
+            low_and_low = False
 
         df.loc[i, 'Low and Low'] = low_and_low
 # End of set_low_and_low

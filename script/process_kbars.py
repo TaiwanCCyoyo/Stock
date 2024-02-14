@@ -39,8 +39,7 @@ import datetime
 import sys
 from concurrent.futures import ProcessPoolExecutor
 sys.path.append(os.path.dirname(os.path.abspath(__file__+"/..")))  # noqa
-from utils import shioaji_utils  # noqa
-from utils import stock_category  # noqa
+from utils import indicators  # noqa
 from user_logger import user_logger  # noqa
 import config  # noqa
 
@@ -103,6 +102,33 @@ def process_min_file(min_file, cache_dir):
     })
 
     day_data = day_data.dropna(subset=['Open', 'High', 'Low', 'Close', 'Volume'])
+
+    # 計算均線
+    indicators.set_ma(day_data)
+
+    # 聚集
+    indicators.set_concentrated(day_data)
+
+    # 聚集 突破
+    indicators.set_breakthrough(day_data)
+
+    # 張嘴排列
+    indicators.set_expansion(day_data)
+
+    # 閉合排列
+    indicators.set_clogging(day_data)
+
+    # 區間高點
+    indicators.set_range_high(day_data)
+
+    # 區間低點
+    indicators.set_range_low(day_data)
+
+    # 過前高
+    indicators.set_high_and_high(day_data)
+
+    # 破前低
+    indicators.set_low_and_low(day_data)
 
     # 將生成的日K資料存儲到 _day.csv 檔案
     day_data.to_csv(os.path.join(cache_dir, day_file), index=True)
