@@ -12,9 +12,14 @@ import pandas as pd
 import argparse
 import os
 import datetime
-import user_logger.user_logger
-import stock_function.stock_category as stock_category
 import re
+import json
+import config
+import sys
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__ + "/..")))  # noqa
+from utils import stock_category  # noqa
+from user_logger import user_logger  # noqa
 
 args = None
 logger = None
@@ -35,7 +40,7 @@ def arg_parse():
     parser.add_argument('-k', '--key', dest='key', type=str,
                         metavar='*.key', default="api.key", help='key file name')
     parser.add_argument('-l', '--log', dest='log', type=str, metavar='*.log',
-                        default="download_all_data.log", help='log file name')
+                        default=f"{config.DEFAULT_LOG_DIR}/download_all_data.log", help='log file name')
     parser.add_argument('--cache_dir', dest='cache_dir', type=str,
                         metavar='*', default="stock_cache", help='local data cache directory')
 
@@ -83,15 +88,33 @@ if __name__ == '__main__':
     today_str = today_date.strftime("%Y-%m-%d")
     today_date = datetime.datetime.strptime(today_str, '%Y-%m-%d')
     logger.info(f"開始: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # 取得台股列表
     TSE_contract_list = api.Contracts.Stocks.TSE
     OTC_contract_list = api.Contracts.Stocks.OTC
-    stock_contract_list = []
-    for contract in TSE_contract_list:
-        if contract.category != stock_category.tse_stock_category_reverse_dict["期權"] \
-                and re.match('^[0-9]+$', contract.code) and contract.update_date != today_str:
-            stock_contract_list.append(contract)
+    all_contracts = []
 
-    for contract in OTC_contract_list:
+    # Extend the list with TSE contracts
+    all_contracts.extend(TSE_contract_list)
+
+    # Extend the list with OTC contracts
+    all_contracts.extend(OTC_contract_list)
+    # all_contracts = TSE_contract_list + OTC_contract_list
+
+    # 建立股號股名對照表
+    stock_symbol_name_mapping = {item.code: item.name for item in all_contracts}
+    stock_symbol_name_mapping = dict(sorted(stock_symbol_name_mapping.items()))
+
+    # 將對照表存儲為 JSON 檔案
+    output_file_path = config.STOCK_SYMBOL_NAME_MAPPING
+    with open(output_file_path, 'w', encoding='utf-8') as json_file:
+        json.dump(stock_symbol_name_mapping, json_file, ensure_ascii=False, indent=4)
+
+    logger.info(f"股號股名對照表已存儲至 {output_file_path}")
+
+    # 取得股票列表
+    stock_contract_list = []
+    for contract in all_contracts:
         if contract.category != stock_category.tse_stock_category_reverse_dict["期權"] \
                 and re.match('^[0-9]+$', contract.code) and contract.update_date != today_str:
             stock_contract_list.append(contract)
