@@ -6,3 +6,6 @@ DEFAULT_CACHE_DIR = "stock_cache"
 
 # DEFAULT_LOG_DIR 是用於定義預設的 Log 檔緩存目錄。
 DEFAULT_LOG_DIR = "log"
+
+# STOCK_SYMBOL_NAME_MAPPING 用於定義預設的股票鼓號對照表
+STOCK_SYMBOL_NAME_MAPPING = 'utils/stock_symbol_name_mapping.json'
