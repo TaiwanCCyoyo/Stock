@@ -12,7 +12,7 @@ import json
 sys.path.append(os.path.dirname(os.path.abspath(__file__ + "/..")))  # noqa
 from user_logger import user_logger  # noqa
 import config  # noqa
-from utils.backtest_struct import StockPosition, TradeHistory  # noqa
+from utils.backtest_struct import StockPosition, TradeHistory, buy_rule_dict, sell_rule_dict  # noqa
 from utils.stock_category import tse_stock_category_dict  # noqa
 
 
@@ -47,6 +47,10 @@ def arg_parse():
                         metavar='<UNSIGNED INT>', default="500000", help='investment per trade')
     parser.add_argument('--group', dest='group', type=str,
                         metavar='<UNSIGNED INT>|ALL', default="ALL", help='investment per trade')
+    parser.add_argument('--buy_rule', dest='buy_rule', type=str,
+                        metavar='*', default="過高買", help='buy rule in backtest_struct')
+    parser.add_argument('--sell_rule', dest='sell_rule', type=str,
+                        metavar='*', default="破底賣", help='sell rule in backtest_struct')
 
     # 解析參數
     return parser.parse_args()
@@ -94,21 +98,7 @@ def read_stock_data(cache_dir, df_dict):
                 df_dict[code] = df
 
 
-def sell_rule(df, date):
-    """
-    賣的規則
-    """
-    return df.loc[date, 'Low and Low']
-
-
-def buy_rule(df, date):
-    """
-    購買規則
-    """
-    return df.loc[date, 'High and High']
-
-
-def backtest(date_list, df_dict, amount, investment_per_trade, stock_symbol_name_mapping):
+def backtest(date_list, df_dict, amount, investment_per_trade, stock_symbol_name_mapping, buy_rule, sell_rule):
     """
     回測
     """
@@ -138,7 +128,7 @@ def backtest(date_list, df_dict, amount, investment_per_trade, stock_symbol_name
             code = hold_codes[i]
             df = df_dict[code]
 
-            if date in df.index and sell_rule(df, date):
+            if date in df.index and sell_rule_dict[sell_rule](df, date):
                 count_sell += 1
                 fee = int(hold[code].value * 0.004425)
                 hold[code].fee += fee
@@ -198,7 +188,7 @@ def backtest(date_list, df_dict, amount, investment_per_trade, stock_symbol_name
 
                     item = (code, vol, price_unit)
 
-                    if price_unit <= investment_per_trade and buy_rule(df, date):
+                    if price_unit <= investment_per_trade and buy_rule_dict[buy_rule](df, date):
                         buy_list.append(item)
 
             # 購買優先找成交金額大的
@@ -306,6 +296,15 @@ if __name__ == '__main__':
     logger = user_logger.get_logger(args.log)  # 取得logger
     decode_group()
 
+    # 確定規則正確
+    if args.buy_rule not in buy_rule_dict.keys():
+        logger.critical(f"{args.buy_rule}不是正確購買規則")
+        exit()
+
+    if args.sell_rule not in sell_rule_dict.keys():
+        logger.critical(f"{args.sell_rule}不是正確賣規則")
+        exit()
+
     # 設定本地暫存檔名稱
     cache_dir = args.cache_dir
 
@@ -344,7 +343,8 @@ if __name__ == '__main__':
         current_date += delta
 
     # 回測
-    backtest(date_list, df_dict, args.amount, args.investment_per_trade, stock_symbol_name_mapping)
+    backtest(date_list, df_dict, args.amount, args.investment_per_trade,
+             stock_symbol_name_mapping, args.buy_rule, args.sell_rule)
 
     end_time = datetime.now()
     logger.info(f"{start_date_str} 到 {end_date_str} 的回測結束")

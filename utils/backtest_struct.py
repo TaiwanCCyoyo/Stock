@@ -33,3 +33,7 @@ class TradeHistory:
         self.cost += stockPosition.cost
         self.profit += (stockPosition.value - stockPosition.cost - stockPosition.fee)
         self.num += 1
+
+
+sell_rule_dict = {"破底賣": lambda df, date: df.loc[date, 'Low and Low']}
+buy_rule_dict = {"過高買": lambda df, date: df.loc[date, 'High and High']}
