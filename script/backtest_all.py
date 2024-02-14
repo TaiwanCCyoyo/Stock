@@ -72,6 +72,8 @@ def decode_group():
     if '-' in stock_groups:
         stock_groups.remove('-')
 
+    logger.info("回測群組:" + ",".join(stock_groups))
+
 
 def read_stock_data(cache_dir, df_dict):
     """
