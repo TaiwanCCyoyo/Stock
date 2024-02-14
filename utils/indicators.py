@@ -134,7 +134,7 @@ def set_range_low(df):
 
     """
     df['Range Low'] = (df['Low'] <= df['Low'].rolling(
-        window=21, center=True).max())
+        window=21, center=True).min())
 # End of set_range_low
 
 
@@ -150,18 +150,21 @@ def set_high_and_high(df):
     pre_high_idx = np.nan
     pre_high = np.nan
     high_and_high = False
+    is_high_and_high = False
     for i in df.index[1:]:
         df.loc[i, 'Pre High Index'] = pre_high_idx
         df.loc[i, 'Pre High'] = pre_high
-        if (df.loc[i, 'Range High']):
-            if (pre_high != np.nan and df.loc[i, 'High'] > pre_high):
-                high_and_high = True
-            else:
-                high_and_high = False
-            pre_high = df.loc[i, 'High']
-            pre_high_idx = i
+
+        if (pre_high != np.nan and df.loc[i, 'High'] > pre_high and not is_high_and_high):
+            high_and_high = True
+            is_high_and_high = True
         else:
             high_and_high = False
+
+        if (df.loc[i, 'Range High']):
+            pre_high = df.loc[i, 'High']
+            pre_high_idx = i.strftime('%Y-%m-%d')
+            is_high_and_high = False
 
         df.loc[i, 'High and High'] = high_and_high
 # End of set_high_and_high
@@ -180,18 +183,21 @@ def set_low_and_low(df):
     pre_low_idx = np.nan
     pre_low = np.nan
     low_and_low = False
+    is_low_and_low = False
     for i in df.index[1:]:
         df.loc[i, 'Pre Low Index'] = pre_low_idx
         df.loc[i, 'Pre Low'] = pre_low
-        if (df.loc[i, 'Range Low']):
-            if (pre_low != np.nan and df.loc[i, 'Low'] < pre_low):
-                low_and_low = True
-            else:
-                low_and_low = False
-            pre_low = df.loc[i, 'Low']
-            pre_low_idx = i
+
+        if (pre_low != np.nan and df.loc[i, 'Low'] < pre_low and not is_low_and_low):
+            low_and_low = True
+            is_low_and_low = True
         else:
             low_and_low = False
+
+        if (df.loc[i, 'Range Low']):
+            pre_low = df.loc[i, 'Low']
+            pre_low_idx = i.strftime('%Y-%m-%d')
+            is_low_and_low = False
 
         df.loc[i, 'Low and Low'] = low_and_low
 # End of set_low_and_low
