@@ -33,9 +33,12 @@ Shioaji 台灣股市資料下載與 K 線分析專案
 import os
 import argparse
 import pandas as pd
+import sys
 from concurrent.futures import ProcessPoolExecutor
 
-DEFAULT_CACHE_DIR = "stock_cache"
+sys.path.append(os.path.dirname(os.path.abspath(__file__+"/..")))  # noqa
+from utils import config  # noqa
+
 args = None
 
 
@@ -49,7 +52,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(
         description='找尋錯誤股價的腳本')
     parser.add_argument('--cache_dir', dest='cache_dir', type=str,
-                        metavar='*', default=DEFAULT_CACHE_DIR, help='本地資料緩存目錄')
+                        metavar='*', default=config.DATA_DIR, help='本地資料緩存目錄')
     parser.add_argument('--suffix', dest='suffix', type=str,
                         metavar='*', default="", help='<>.csv <>這段後贅字')
     return parser.parse_args()

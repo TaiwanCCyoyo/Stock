@@ -1,3 +1,6 @@
 [submodule "user_logger"]
 	path = user_logger
 	url = https://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@github.com/TaiwanCCyoyo/user_logger
+[submodule "shioaji_stock_prices"]
+	path = shioaji_stock_prices
+	url = https://github.com/TaiwanCCyoyo/shioaji-stock-prices

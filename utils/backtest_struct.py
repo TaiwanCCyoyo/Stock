@@ -1,3 +1,6 @@
+import pandas as pd
+
+
 class StockPosition:
     def __init__(self, purchase_price_unit, num, fee):
         self.purchase_price_unit = purchase_price_unit  # 每張平均購買價
@@ -35,5 +38,43 @@ class TradeHistory:
         self.num += 1
 
 
-sell_rule_dict = {"破底賣": lambda df, date: df.loc[date, 'Low and Low']}
-buy_rule_dict = {"過高買": lambda df, date: df.loc[date, 'High and High']}
+sell_rule_dict = {"破底賣":  # 破底就賣
+                  lambda df, date: df.loc[date, '破底'],
+                  "ESMA20死亡交叉":  # 死亡交叉賣，不過保留一點誤差值
+                  lambda df, date:
+                  ((df.loc[date, 'Close'] < df.loc[date, 'SMA20'] and df.loc[date, 'Close'] < df.loc[date, 'EMA20']) and
+                   ((float(df.loc[date, 'SMA20'] - df.loc[date, 'Close'])/df.loc[date, 'Close'] > 0.01) or
+                    (float(df.loc[date, 'EMA20'] - df.loc[date, 'Close'])/df.loc[date, 'Close'] > 0.01)
+                    )),
+                  }
+# sell_rule_dict = {"破底賣":  # 破底就賣
+#                   lambda df, date: df.loc[date, '破底'],
+#                   "ESMA20死亡交叉":  # 死亡交叉賣，不過保留一點誤差值
+#                   lambda df, date:
+#                   (((float(df.loc[date, 'SMA20'] - df.loc[date, 'Close'])/df.loc[date, 'Close'] > 0.01) and
+#                     df.loc[date, 'Close'] < df.loc[date, 'SMA20']) or
+#                    ((float(df.loc[date, 'EMA20'] - df.loc[date, 'Close'])/df.loc[date, 'Close'] > 0.01) and
+#                     df.loc[date, 'EMA20'] < df.loc[date, 'SMA20'])),
+#                   }
+
+
+buy_rule_dict = {"過高買":  # 第一次過高就買
+                 lambda df, date: pd.notnull(df.loc[date, 'Previous Index']) and pd.notnull(df.loc[date, '過前高']) and (
+                     not df.loc[df.loc[date, 'Previous Index'], '過前高'] and df.loc[date, '過前高']),
+                 "過高後均線聚集買":  # 若前高有過前前高，在均線聚集處買
+                 lambda df, date: df.loc[df.loc[date, '前高 Index'], '過前高'] and df.loc[date, '均線聚集後突破'],
+                 "突破下降壓力均線聚集買":  # 突破下降壓力，在均線聚集處買
+                 lambda df, date: (df.loc[date, 'Close'] > df.loc[date, '高點連線']) and df.loc[date, '均線聚集後突破'],
+                 "突破下降壓力或過高後均線聚集買":  # 突破下降壓力，在均線聚集處買
+                 lambda df, date: (((df.loc[date, 'Close'] > df.loc[date, '高點連線']) or
+                                   df.loc[df.loc[date, '前高 Index'], '過前高']) and
+                                   df.loc[date, '均線聚集']),
+
+                 "聚集買":  # 在均線聚集處買
+                 lambda df, date: (df.loc[date, '均線聚集後突破'] or
+                                   (df.loc[date, '短均線聚集後突破'] and
+                                    (df.loc[df.loc[date, '前高 Index'], '過前高'] or
+                                     not df.loc[df.loc[date, '前低 Index'], '破底']))),
+                 #  "聚集買":  # 在均線聚集處買
+                 #  lambda df, date: (df.loc[date, '短均線聚集']),
+                 }

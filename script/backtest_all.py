@@ -7,13 +7,12 @@ from datetime import datetime, timedelta
 import re
 import twstock
 import sys
-import json
+import json5
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__ + "/..")))  # noqa
 from user_logger import user_logger  # noqa
-import config  # noqa
+from utils import config  # noqa
 from utils.backtest_struct import StockPosition, TradeHistory, buy_rule_dict, sell_rule_dict  # noqa
-from utils.stock_category import tse_stock_category_dict  # noqa
 
 
 args = None
@@ -39,8 +38,6 @@ def arg_parse():
                         default=False, help='Update from Shioaji even if there is *.csv')
     parser.add_argument('-l', '--log', dest='log', type=str,
                         metavar='*.log', default=f"{config.DEFAULT_LOG_DIR}/backtest_all.log", help='log file name')
-    parser.add_argument('--cache_dir', dest='cache_dir', type=str,
-                        metavar='*', default="stock_cache", help='local data cache directory')
     parser.add_argument('--amount', dest='amount', type=int,
                         metavar='<UNSIGNED INT>', default="2000000", help='initial amount')
     parser.add_argument('--investment_per_trade', dest='investment_per_trade', type=int,
@@ -62,16 +59,24 @@ def decode_group():
     """
     global stock_groups
 
+    # 取得股票種類對照表
+    if (not os.path.isfile(config.STOCK_CATEGORY)):
+        logger.critical(f"找不到 {config.STOCK_CATEGORY}")
+        exit()
+
+    with open(config.STOCK_CATEGORY, "r", encoding="utf-8") as f:
+        stock_category = json5.load(f)
+
     group_str = args.group
     groups = group_str.split("|")
     stock_groups = set()
     if "ALL" in groups:
-        for g in tse_stock_category_dict:
-            stock_groups.add(tse_stock_category_dict[g])
+        for g in stock_category['TSE']:
+            stock_groups.add(stock_category['TSE'][g])
     else:
         for g in groups:
-            if g in tse_stock_category_dict.keys():
-                stock_groups.add(tse_stock_category_dict[g])
+            if g in stock_category['TSE'].keys():
+                stock_groups.add(stock_category['TSE'][g])
 
     if '-' in stock_groups:
         stock_groups.remove('-')
@@ -79,37 +84,46 @@ def decode_group():
     logger.info("回測群組:" + ",".join(stock_groups))
 
 
-def read_stock_data(cache_dir, df_dict):
+def read_stock_data(data_dir, df_dict):
     """
     取得資料夾中的所有 _day.csv 檔案 (日K)
     """
-    day_files = [f for f in os.listdir(cache_dir) if f.endswith("_day.csv")]
+    day_files = [f for f in os.listdir(data_dir) if f.endswith("_day.csv")]
 
     for f in day_files:
-        match = re.search(r'(\d+)_cache_day.csv', f)
+        match = re.search(r'(\d+)_day.csv', f)
         if match:
             code = match.group(1)
             if ((code in twstock.codes.keys()) and twstock.codes[code].type == "股票" and
                     (twstock.codes[code].group in stock_groups)):
-                # and (code == "3231")):
-                logger.info(f'Reading {cache_dir}/{f}')
-                df = pd.read_csv(f'{cache_dir}/{f}')
+                # (code == "3231")):  # 緯創
+                # (code == "2352")):  # 佳世達
+                # (code == "2404")):  # 漢唐
+                logger.info(f'Reading {data_dir}/{f}')
+                df = pd.read_csv(f'{data_dir}/{f}')
                 df.set_index('ts', inplace=True)
                 df_dict[code] = df
 
 
-def backtest(date_list, df_dict, amount, investment_per_trade, stock_symbol_name_mapping, buy_rule, sell_rule):
+def backtest(date_list, df_dict, ini_amount, investment_per_trade, stock_symbol_name_mapping, buy_rule, sell_rule):
     """
     回測
     """
     logger.info("開始回測")
     logger.info(f"每次購買金額 {investment_per_trade }")
-    logger.info(f"初始金額 {amount}")
+    amount = ini_amount
+    if amount == 0:
+        logger.info("無初始金額，每次都買")
+    else:
+        logger.info(f"初始金額 {amount}")
+
     hold = {}
     trade = {}
     count_buy = 0
     count_sell = 0
     total_fee = 0
+    win = 0
+    lose = 0
 
     for date in date_list:
         # 更新最後收盤價
@@ -135,6 +149,10 @@ def backtest(date_list, df_dict, amount, investment_per_trade, stock_symbol_name
                 cost = hold[code].cost + hold[code].fee
                 profit = hold[code].value - cost
                 total_fee += hold[code].fee
+                if profit > 0:
+                    win += 1
+                else:
+                    lose += 1
                 amount += (hold[code].value - fee)
                 logger.info("=======================")
                 logger.info(f"賣出 {stock_symbol_name_mapping[code]}({code})")
@@ -149,8 +167,6 @@ def backtest(date_list, df_dict, amount, investment_per_trade, stock_symbol_name
                 logger.info(
                     f"獲利：        {profit} 元 " +
                     f"({profit/cost*100:.2f}) %")
-                logger.info("-----------------------")
-                logger.info(f"總持有現金： {amount} 元")
 
                 # 更新歷史交易
                 if code in trade:
@@ -160,24 +176,26 @@ def backtest(date_list, df_dict, amount, investment_per_trade, stock_symbol_name
                     trade[code] = tradeHistory
 
                 hold.pop(code, None)
-                logger.info("總持有股票：")
-                propert = 0
-                for hold_code in hold.keys():
-                    logger.info(
-                        f"    {stock_symbol_name_mapping[hold_code]}({hold_code}) 有 {hold[hold_code].num} 張 " +
-                        f"共 {hold[hold_code].value} 成本 {hold[hold_code].cost} " +
-                        f"獲利 {hold[hold_code].value - hold[hold_code].cost - hold[hold_code].fee}")
-                    propert += hold[hold_code].value
-                logger.info(f"總資產： {amount+propert} 元")
-                logger.info("=======================")
-                logger.info("")
+
+                if ini_amount > 0:
+                    logger.info("-----------------------")
+                    logger.info(f"總持有現金： {amount} 元")
+                    logger.info("總持有股票：")
+                    propert = 0
+                    for hold_code in hold.keys():
+                        logger.info(
+                            f"    {stock_symbol_name_mapping[hold_code]}({hold_code}) 有 {hold[hold_code].num} 張 " +
+                            f"共 {hold[hold_code].value} 成本 {hold[hold_code].cost} " +
+                            f"獲利 {hold[hold_code].value - hold[hold_code].cost - hold[hold_code].fee}")
+                        propert += hold[hold_code].value
+                    logger.info(f"總資產： {amount+propert} 元")
                 logger.info("=======================")
                 logger.info("")
             i += 1
 
         # 找到可購買清單
         buy_list = []
-        if amount >= investment_per_trade:
+        if ini_amount == 0 or amount >= investment_per_trade:
             for code in df_dict.keys():
                 df = df_dict[code]
 
@@ -188,7 +206,8 @@ def backtest(date_list, df_dict, amount, investment_per_trade, stock_symbol_name
 
                     item = (code, vol, price_unit)
 
-                    if price_unit <= investment_per_trade and buy_rule_dict[buy_rule](df, date):
+                    if (price_unit <= investment_per_trade and (ini_amount > 0 or df.loc[date, 'Volume'] >= 1000) and
+                            buy_rule_dict[buy_rule](df, date)):
                         buy_list.append(item)
 
             # 購買優先找成交金額大的
@@ -233,21 +252,23 @@ def backtest(date_list, df_dict, amount, investment_per_trade, stock_symbol_name
             logger.info(f"單價： {df.loc[date, 'Close']:.2f} 元")
             logger.info(f"總價： {cost} 元")
             logger.info(f"手續： {fee} 元")
-            logger.info("-----------------------")
-            logger.info(f"總持有現金： {amount} 元")
-            logger.info("總持有股票：")
-            propert = 0
-            for hold_code in hold.keys():
-                logger.info(
-                    f"    {stock_symbol_name_mapping[hold_code]}({hold_code}) 有 {hold[hold_code].num} 張 " +
-                    f"共 {hold[hold_code].value} 成本 {hold[hold_code].cost} " +
-                    f"獲利 {hold[hold_code].value - hold[hold_code].cost- hold[hold_code].fee}")
-                propert += hold[hold_code].value
-            logger.info(f"總資產： {amount+propert} 元")
+
+            if ini_amount > 0:
+                logger.info("-----------------------")
+                logger.info(f"總持有現金： {amount} 元")
+                logger.info("總持有股票：")
+                propert = 0
+                for hold_code in hold.keys():
+                    logger.info(
+                        f"    {stock_symbol_name_mapping[hold_code]}({hold_code}) 有 {hold[hold_code].num} 張 " +
+                        f"共 {hold[hold_code].value} 成本 {hold[hold_code].cost} " +
+                        f"獲利 {hold[hold_code].value - hold[hold_code].cost- hold[hold_code].fee}")
+                    propert += hold[hold_code].value
+                logger.info(f"總資產： {amount+propert} 元")
             logger.info("=======================")
             logger.info("")
 
-            if amount < investment_per_trade:
+            if ini_amount > 0 and amount < investment_per_trade:
                 break
 
     # 結算
@@ -255,36 +276,57 @@ def backtest(date_list, df_dict, amount, investment_per_trade, stock_symbol_name
     logger.info(f"總持有現金： {amount} 元")
     logger.info("總持有股票：")
     propert = 0
+    total_cost = 0
+    total_profit = 0
 
     for hold_code in hold.keys():
+        profit = hold[hold_code].value - hold[hold_code].cost - hold[hold_code].fee
+        total_cost += (hold[hold_code].cost + hold[hold_code].fee)
+        total_profit += profit
+        if profit > 0:
+            win += 1
+        else:
+            lose += 1
         total_fee += hold[hold_code].fee
         logger.info(
             f"    {stock_symbol_name_mapping[hold_code]}({hold_code}) 有 {hold[hold_code].num} 張" +
             f"平均成本:{hold[hold_code].purchase_price:.2f} " +
             f"最後收盤價:{hold[hold_code].price:.2f} 市值: {hold[hold_code].value} 成本 {hold[hold_code].cost} " +
-            f"獲利 {hold[hold_code].value - hold[hold_code].cost -  hold[hold_code].fee}")
+            f"獲利 {profit}({profit/(hold[hold_code].cost+hold[hold_code].fee)*100:.2f} %)")
         propert += hold[hold_code].value
     logger.info(f"總資產： {amount+propert} 元")
     logger.info("=======================")
 
     logger.info("歷史交易")
     for trade_code in trade:
+        total_cost += (trade[trade_code].cost)
+        total_profit += trade[trade_code].profit
         logger.info(
             f"    {stock_symbol_name_mapping[trade_code]}({trade_code}) 共花 {trade[trade_code].cost} " +
             f"賣 {trade[trade_code].num} 次 總獲利{trade[trade_code].profit} " +
             f"({trade[trade_code].profit/trade[trade_code].cost*100:.2f} %)")
     logger.info("=======================")
-    total_returns = (float(amount+propert)/args.amount-1) * 100
+    if ini_amount == 0:
+        logger.info(f"總花費： {total_cost}")
+        logger.info(f"總獲利： {total_profit}")
+        if total_cost > 0:
+            total_returns = (float(total_profit)/total_cost) * 100
+        else:
+            total_returns = 0
+    else:
+        logger.info(f"初始金額： {args.amount}")
+        total_returns = (float(amount+propert)/args.amount-1) * 100
     days_difference = (end_date - start_date).days
     annualized_returns = (total_returns / days_difference) * 365
 
-    logger.info(f"初始金額： {args.amount}")
     logger.info(f"時間： {days_difference}")
     logger.info(f"總報酬： {total_returns:.2f} %")
     logger.info(f"年化報酬: {annualized_returns:.2f}%")
     logger.info(f"買次數: {count_buy}")
     logger.info(f"賣次數: {count_sell}")
     logger.info(f"總手續費: {total_fee}")
+    if (win + lose) > 0:
+        logger.info(f"勝率: {float(win)/(win+lose)*100:.2f}% (贏:{win} 輸:{lose})")
 
     logger.info("=======================")
     logger.info("")
@@ -306,24 +348,25 @@ if __name__ == '__main__':
         exit()
 
     # 設定本地暫存檔名稱
-    cache_dir = args.cache_dir
+    data_dir = config.DATA_DIR
 
-    if not os.path.exists(cache_dir):
-        logger.critical(f"找不到{cache_dir}")
+    if not os.path.exists(data_dir):
+        logger.critical(f"找不到{data_dir}")
         exit()
 
     # 取得半導體業股票列表資料
     df_dict = {}
-    read_stock_data(cache_dir, df_dict)
+    read_stock_data(data_dir, df_dict)
 
     # 取得股號股名對照表
     stock_symbol_name_mapping = {}
-    with open(config.STOCK_SYMBOL_NAME_MAPPING, 'r', encoding='utf-8') as f:
-        stock_symbol_name_mapping = json.load(f)
+    with open(config.STOCK_SYMBOL_MAPPING, 'r', encoding='utf-8') as f:
+        stock_symbol_name_mapping = json5.load(f)
 
     # 取得要計算的日期
-    # start_date_str = '2018-12-07'
-    start_date_str = '2022-07-01'
+    # start_date_str = config.SHIOAJI_START_DATE # 2018-12-07
+    start_date_str = '2023-12-01'
+
     start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
     end_date = start_date
     for code in df_dict.keys():
@@ -334,6 +377,12 @@ if __name__ == '__main__':
             end_date = last_date
 
     end_date_str = end_date.strftime('%Y-%m-%d')
+
+    # temp
+    # end_date_str = '2022-08-01'
+    # end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+    # ------------
+
     delta = timedelta(days=1)
     date_list = []
     current_date = start_date

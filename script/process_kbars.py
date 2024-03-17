@@ -33,50 +33,22 @@ Shioaji 台灣股市資料下載與 K 線分析專案
 
 import re
 import pandas as pd
-import argparse
 import os
 import datetime
 import sys
 from concurrent.futures import ProcessPoolExecutor
 sys.path.append(os.path.dirname(os.path.abspath(__file__+"/..")))  # noqa
 from utils import indicators  # noqa
-from user_logger import user_logger  # noqa
-import config  # noqa
+from utils import config  # noqa
 
 
-args = None
-logger = None
-
-
-def arg_parse():
-    """
-    解析參數設定並回傳解析結果。
-
-    Returns:
-        argparse.Namespace: 解析後的參數設定。
-    """
-
-    parser = argparse.ArgumentParser(description='shioaji test script')
-    # 設定參數選項
-    parser.add_argument('--version', action='version', version='%(prog)s 0.1')
-    parser.add_argument('-v', '--verbose', action='count', default=0)
-    parser.add_argument('-l', '--log', dest='log', type=str,
-                        metavar='*.log', default=f"{config.DEFAULT_LOG_DIR}/refresh_stock_data.log",
-                        help='log file name')
-    parser.add_argument('--cache_dir', dest='cache_dir', type=str,
-                        metavar='*', default=config.DEFAULT_CACHE_DIR, help='本地資料緩存目錄')
-
-    # 解析參數
-    return parser.parse_args()
-
-
-def process_min_file(min_file, cache_dir):
+def process_min_file(min_file, data_dir):
     """
     生成單一 _min.csv 檔案對應的日K資料。
 
     Args:
         min_file (str): 輸入的 _min.csv 檔案名稱。
-        cache_dir (str): 包含分K資料檔案的資料夾。
+        data_dir (str): 包含分K資料檔案的資料夾。
 
     Returns:
         None
@@ -85,7 +57,7 @@ def process_min_file(min_file, cache_dir):
     print(f"將{min_file}轉成{day_file}")
 
     # 讀取分K資料
-    min_data = pd.read_csv(os.path.join(cache_dir, min_file))
+    min_data = pd.read_csv(os.path.join(data_dir, min_file))
     min_data.ts = pd.to_datetime(min_data.ts)
     min_data.set_index('ts', inplace=True)
 
@@ -102,6 +74,13 @@ def process_min_file(min_file, cache_dir):
     })
 
     day_data = day_data.dropna(subset=['Open', 'High', 'Low', 'Close', 'Volume'])
+
+    # 添加前一个索引值的新列
+    pre_idx = day_data.index[0].strftime('%Y-%m-%d')
+    day_data['Previous Index'] = pd.NA
+    for i in day_data.index[1:]:
+        day_data.loc[i, 'Previous Index'] = pre_idx
+        pre_idx = i.strftime('%Y-%m-%d')
 
     # 計算均線
     indicators.set_ma(day_data)
@@ -121,63 +100,64 @@ def process_min_file(min_file, cache_dir):
     # 區間高點
     indicators.set_range_high(day_data)
 
+    # 高點連線
+    indicators.set_high_point_connection(day_data)
+
     # 區間低點
     indicators.set_range_low(day_data)
 
     # 過前高
-    indicators.set_high_and_high(day_data)
+    indicators.set_over_high(day_data)
 
     # 破前低
-    indicators.set_low_and_low(day_data)
+    indicators.set_below_low(day_data)
 
     # 將生成的日K資料存儲到 _day.csv 檔案
-    day_data.to_csv(os.path.join(cache_dir, day_file), index=True)
+    day_data.to_csv(os.path.join(data_dir, day_file), index=True)
 
 
-def generate_day_data(cache_dir):
+def generate_day_data(data_dir):
     """
     根據分K資料生成日K資料。
 
     Args:
-        cache_dir (str): 包含分K資料檔案的資料夾。
+        data_dir (str): 包含分K資料檔案的資料夾。
 
     Returns:
         None
     """
     # 檢查資料夾是否存在
-    if not os.path.exists(cache_dir):
-        print(f"找不到資料夾: {cache_dir}")
+    if not os.path.exists(data_dir):
+        print(f"找不到資料夾: {data_dir}")
         return
 
     # 取得資料夾中的所有 _min.csv 檔案
-    min_files = [f for f in os.listdir(cache_dir) if f.endswith("_min.csv")]
+    min_files = [f for f in os.listdir(data_dir) if f.endswith("_min.csv")]
 
     # 使用 ProcessPoolExecutor 建立進程池
     with ProcessPoolExecutor() as executor:
         # 將任務提交到進程池中執行
-        executor.map(process_min_file, min_files, [cache_dir]*len(min_files))
+        executor.map(process_min_file, min_files, [data_dir]*len(min_files))
 
 
 if __name__ == '__main__':
-    args = arg_parse()  # 命令參數解析
-    logger = user_logger.get_logger(args.log)  # 取得logger
-    cache_dir = args.cache_dir
+    data_dir = config.DATA_DIR
 
-    if not os.path.exists(cache_dir):
-        logger.critical(f"找不到資料夾: {cache_dir}")
-        exit
+    if not os.path.exists(data_dir):
+        print(f"找不到資料夾: {data_dir}")
+        exit()
 
     # 開始執行時間
     start_time = datetime.datetime.now()
-    logger.info(f"開始: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"開始: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # 生成日K資料
-    generate_day_data(args.cache_dir)
+    generate_day_data(data_dir)
 
     # 結束執行時間
     end_time = datetime.datetime.now()
-    logger.info(f"結束: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"結束: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # 計算執行時間
     total_time = (end_time - start_time).total_seconds()
-    logger.info(f"程式共花費: {total_time} 秒")
+    print(f"程式共花費: {total_time} 秒")
