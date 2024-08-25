@@ -48,6 +48,11 @@ def arg_parse():
                         metavar='*', default="過高買", help='buy rule in backtest_struct')
     parser.add_argument('--sell_rule', dest='sell_rule', type=str,
                         metavar='*', default="破底賣", help='sell rule in backtest_struct')
+    parser.add_argument('--code', dest='code', type=str,
+                        metavar='*', default=".*", help='Only test that code')
+    parser.add_argument('--start_date', dest='start_date', type=str,
+                        metavar='*', default=config.SHIOAJI_START_DATE,
+                        help=f'Add the start date. default {config.SHIOAJI_START_DATE}')  # 2018-12-07
 
     # 解析參數
     return parser.parse_args()
@@ -94,24 +99,24 @@ def read_stock_data(data_dir, df_dict):
         match = re.search(r'(\d+)_day.csv', f)
         if match:
             code = match.group(1)
+            if not re.match(args.code, code):
+                continue
             if ((code in twstock.codes.keys()) and twstock.codes[code].type == "股票" and
                     (twstock.codes[code].group in stock_groups)):
-                # (code == "3231")):  # 緯創
-                # (code == "2352")):  # 佳世達
-                # (code == "2404")):  # 漢唐
                 logger.info(f'Reading {data_dir}/{f}')
                 df = pd.read_csv(f'{data_dir}/{f}')
                 df.set_index('ts', inplace=True)
                 df_dict[code] = df
 
 
-def backtest(date_list, df_dict, ini_amount, investment_per_trade, stock_symbol_name_mapping, buy_rule, sell_rule):
+def backtest(date_list, df_dict, ini_amount, investment_per_trade, stock_symbol_name_mapping, buy_rule, sell_rule, fake_break):
     """
     回測
     """
     logger.info("開始回測")
     logger.info(f"每次購買金額 {investment_per_trade }")
     amount = ini_amount
+    max_cash_needed = 0
     if amount == 0:
         logger.info("無初始金額，每次都買")
     else:
@@ -142,7 +147,7 @@ def backtest(date_list, df_dict, ini_amount, investment_per_trade, stock_symbol_
             code = hold_codes[i]
             df = df_dict[code]
 
-            if date in df.index and sell_rule_dict[sell_rule](df, date):
+            if date in df.index and (sell_rule_dict[sell_rule](df, date) or (hold[code].value/hold[code].cost < 0.95)):
                 count_sell += 1
                 fee = int(hold[code].value * 0.004425)
                 hold[code].fee += fee
@@ -206,7 +211,9 @@ def backtest(date_list, df_dict, ini_amount, investment_per_trade, stock_symbol_
 
                     item = (code, vol, price_unit)
 
-                    if (price_unit <= investment_per_trade and (ini_amount > 0 or df.loc[date, 'Volume'] >= 1000) and
+                    if (price_unit <= investment_per_trade and
+                        (price_unit * df.loc[date, 'Volume']) >= 50000000 and
+                        df.loc[date, 'Volume'] >= 1000 and
                             buy_rule_dict[buy_rule](df, date)):
                         buy_list.append(item)
 
@@ -245,6 +252,8 @@ def backtest(date_list, df_dict, ini_amount, investment_per_trade, stock_symbol_
             # 花費
             cost = num_per_time * price_unit
             amount -= (cost + fee)
+            if amount < (max_cash_needed * -1):
+                max_cash_needed = amount * -1
             logger.info("=======================")
             logger.info(f"買入 {stock_symbol_name_mapping[code]}({code})")
             logger.info("-----------------------")
@@ -297,7 +306,10 @@ def backtest(date_list, df_dict, ini_amount, investment_per_trade, stock_symbol_
     logger.info(f"總資產： {amount+propert} 元")
     logger.info("=======================")
 
-    logger.info("歷史交易")
+    logger.info("歷史交易，依照獲利排序")
+
+    sorted_trades = sorted(trade.items(), key=lambda item: item[1].profit, reverse=True)
+    trade = {k: v for k, v in sorted_trades}
     for trade_code in trade:
         total_cost += (trade[trade_code].cost)
         total_profit += trade[trade_code].profit
@@ -308,9 +320,10 @@ def backtest(date_list, df_dict, ini_amount, investment_per_trade, stock_symbol_
     logger.info("=======================")
     if ini_amount == 0:
         logger.info(f"總花費： {total_cost}")
+        logger.info(f"所需最大的持有現金： {max_cash_needed}")
         logger.info(f"總獲利： {total_profit}")
-        if total_cost > 0:
-            total_returns = (float(total_profit)/total_cost) * 100
+        if max_cash_needed > 0:
+            total_returns = (float(total_profit)/max_cash_needed) * 100
         else:
             total_returns = 0
     else:
@@ -319,7 +332,7 @@ def backtest(date_list, df_dict, ini_amount, investment_per_trade, stock_symbol_
     days_difference = (end_date - start_date).days
     annualized_returns = (total_returns / days_difference) * 365
 
-    logger.info(f"時間： {days_difference}")
+    logger.info(f"時間： {days_difference} 天")
     logger.info(f"總報酬： {total_returns:.2f} %")
     logger.info(f"年化報酬: {annualized_returns:.2f}%")
     logger.info(f"買次數: {count_buy}")
@@ -354,7 +367,7 @@ if __name__ == '__main__':
         logger.critical(f"找不到{data_dir}")
         exit()
 
-    # 取得半導體業股票列表資料
+    # 取得股票列表資料
     df_dict = {}
     read_stock_data(data_dir, df_dict)
 
@@ -364,8 +377,7 @@ if __name__ == '__main__':
         stock_symbol_name_mapping = json5.load(f)
 
     # 取得要計算的日期
-    # start_date_str = config.SHIOAJI_START_DATE # 2018-12-07
-    start_date_str = '2023-12-01'
+    start_date_str = args.start_date
 
     start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
     end_date = start_date
@@ -378,11 +390,6 @@ if __name__ == '__main__':
 
     end_date_str = end_date.strftime('%Y-%m-%d')
 
-    # temp
-    # end_date_str = '2022-08-01'
-    # end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
-    # ------------
-
     delta = timedelta(days=1)
     date_list = []
     current_date = start_date
@@ -393,7 +400,7 @@ if __name__ == '__main__':
 
     # 回測
     backtest(date_list, df_dict, args.amount, args.investment_per_trade,
-             stock_symbol_name_mapping, args.buy_rule, args.sell_rule)
+             stock_symbol_name_mapping, args.buy_rule, args.sell_rule, args.fake_break)
 
     end_time = datetime.now()
     logger.info(f"{start_date_str} 到 {end_date_str} 的回測結束")
